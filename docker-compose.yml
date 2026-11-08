@@ -1,0 +1,93 @@
+# Entorno completo de PiShop Cloud. P12 es responsable de mantenerlo funcionando.
+# Cada servicio de services/<nombre>/ debe tener su Dockerfile (copiado de plantilla-servicio/).
+# Uso:  docker compose up -d        (levanta infraestructura y los servicios implementados)
+x-servicio: &servicio
+  restart: unless-stopped
+  environment: &env
+    PISHOP_APP_ENV: dev
+    PISHOP_CONSUL_URL: http://consul:8500
+    PISHOP_CONFIG_SERVICE_URL: http://config-service:8010
+    PISHOP_EVENT_BUS: redis
+    PISHOP_REDIS_URL: redis://redis:6379/0
+  depends_on:
+    consul: {condition: service_healthy}
+    redis: {condition: service_healthy}
+
+services:
+  consul:
+    image: hashicorp/consul:1.21
+    command: agent -server -bootstrap -ui -client=0.0.0.0
+    ports: ["8500:8500"]
+    healthcheck: {test: ["CMD", "consul", "members"], interval: 5s, retries: 10}
+
+  redis:
+    image: redis:8-alpine
+    ports: ["6379:6379"]
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10}
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD en .env}
+    volumes: ["./infra/initdb:/docker-entrypoint-initdb.d:ro"]   # crea pg_catalogo, pg_inventario, pg_pedidos, pg_pagos, pg_notif, pg_reportes
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U postgres"], interval: 5s, retries: 10}
+
+  config-service:
+    <<: *servicio
+    build: ./services/config-service
+    ports: ["8010:8010"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: config-service, PISHOP_HTTP_PORT: "8010"}
+
+  catalogo-service:
+    <<: *servicio
+    build: ./services/catalogo-service
+    ports: ["8001:8001"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: catalogo-service, PISHOP_HTTP_PORT: "8001"}
+
+  inventario-service:
+    <<: *servicio
+    build: ./services/inventario-service
+    ports: ["8002:8002"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: inventario-service, PISHOP_HTTP_PORT: "8002"}
+
+  pedidos-service:
+    <<: *servicio
+    build: ./services/pedidos-service
+    ports: ["8003:8003"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: pedidos-service, PISHOP_HTTP_PORT: "8003"}
+
+  pagos-service:
+    <<: *servicio
+    build: ./services/pagos-service
+    ports: ["8004:8004"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: pagos-service, PISHOP_HTTP_PORT: "8004", PISHOP_PASARELA_MODO: ok}
+
+  notificaciones-service:
+    <<: *servicio
+    build: ./services/notificaciones-service
+    ports: ["8005:8005"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: notificaciones-service, PISHOP_HTTP_PORT: "8005"}
+
+  reportes-service:
+    <<: *servicio
+    build: ./services/reportes-service
+    ports: ["8006:8006"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: reportes-service, PISHOP_HTTP_PORT: "8006"}
+
+  descubridor-service:
+    <<: *servicio
+    build: ./services/descubridor-service
+    ports: ["8090:8090"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: descubridor-service, PISHOP_HTTP_PORT: "8090"}
+
+  checkout-bff:
+    <<: *servicio
+    build: ./services/checkout-bff
+    ports: ["8080:8080"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: checkout-bff, PISHOP_HTTP_PORT: "8080"}
+
+  api-publica:
+    <<: *servicio
+    build: ./services/api-publica
+    ports: ["8000:8000"]
+    environment: {<<: *env, PISHOP_SERVICE_NAME: api-publica, PISHOP_HTTP_PORT: "8000", PISHOP_API_KEY: ${PISHOP_API_KEY:?defina PISHOP_API_KEY en .env}}
